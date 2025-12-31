@@ -1,18 +1,26 @@
 #include <map>
 #include <array>
-#include <cctype>
-#include <string_view>
 
-#include <iostream>
+#include <cctype>
+#include <string>
+#include <sstream>
 #include <iomanip>
+#include <iostream>
+
 #include <stdexcept>
+
+#ifdef _WIN32
+  #include <windows.h>
+  #include <fcntl.h>
+  #include <io.h>
+#endif
 
 typedef short i16;
 typedef   int i32;
 
 typedef std::map<i16, i32> i16toi16;
 
-using namespace std::string_view_literals;
+using namespace std::string_literals;
 
 struct  cpos : std::array<wchar_t, 2> {};
 namespace chess {
@@ -39,48 +47,76 @@ namespace chess {
     struct  addr : std::array<char, 2> {
       typedef std::array<char, 2> base_t;
       
-      constexpr static
-      std::pair<bool, std::string_view>
+      static
+      std::pair<bool, std::string>
       is_valid(
-        std::string_view const &sv
+        std::string const &str
       ) noexcept {
         using namespace std;
-        if(sv.length() != 2)
-          return pair(false, "position length error.");
+        typedef pair<bool, string> dst_t;
+
+        stringstream ss;
+        char alpha, num;
+
+        if(str.length() != 2) {
+          ss  << "length error: string{"
+              << str << "} must have exactly 2 characters";
+          
+          goto failed;
+        }
         
-        if(!isalnum(sv[0]) || !isalnum(sv[1]))
-          return pair(false, "argument(s) are not alphanumeric.");
+        if(!isalnum(str[0]) || !isalnum(str[1])) {
+          ss  << "string{"<< str
+              << "} argument(s) are not alphanumeric.";
 
-        if( !(isalpha(sv[0]) && isdigit(sv[1])) &&
-            !(isalpha(sv[1]) && isdigit(sv[0]))
-        ) return pair(  false,
-                        "invalid arguments. "
-                        "Must be a letter from A through H "
-                        "followed a number from 1 through 8"
-                        "e.i. \"A1\""); 
+          goto failed;
+        }
+        if( !(isalpha(str[0]) && isdigit(str[1]) || 
+              isalpha(str[1]) && isdigit(str[0])    )
+        ) {
+          ss  <<  "invalid argument(s): string{" << str
+              <<  "} Must have a letter from A through H "
+                  "followed a number from 1 through 8 or vice versa"
+                  "e.i. \"A1\""; 
 
-        char const  alpha =  toupper(isalpha(sv[0]) ? sv[0] : sv[1]),
-                    num   =         (isdigit(sv[1]) ? sv[1] : sv[0]);
+          goto failed;
+        }
 
-        if(alpha >= 'A' && alpha < 'H')
-          return pair(false, "Must be a letter from A through H.");
+        alpha =  toupper(isalpha(str[0]) ? str[0] : str[1]);
+        num   =         (isdigit(str[1]) ? str[1] : str[0]);
 
-        if(num >= '1' && num < '9')
-          return pair(false, "Must be a number from 1 through 8.");
+        if(!(alpha >= 'A' && alpha <= 'H')) {
+          ss  << "Invalid argument. string{"
+              << str << "} Must have a letter from A through H.";
         
-        return pair(true, "valid position.");
+          goto failed;
+        }
+
+        if(!(num >= '1' && num <= '8')) {
+          ss  << "Invalid argument. string{"
+              << str << "} Must have a number from 1 through 8.";
+
+          goto failed;
+        }
+        
+        passed:
+          ss  << "Argument. string{"
+              << str << "} Validation completed (passed).";
+            return dst_t(true, ss.str());
+
+        failed:
+          return dst_t(false, ss.str());
       }
       
-      addr(std::string_view const &sv) {
-        auto [isValid, msg_sv] = is_valid(sv);
+      addr(std::string const &str) {
+        auto [isValid, msg] = is_valid(str);
 
         if(!isValid) {
-          std::string msg(msg_sv.begin(), msg_sv.end());
           throw std::runtime_error(msg.c_str());
         }
 
-        char const  alpha =  toupper(isalpha(sv[0]) ? sv[0] : sv[1]),
-                    num   =         (isdigit(sv[1]) ? sv[1] : sv[0]);
+        char const  alpha =  toupper(isalpha(str[0]) ? str[0] : str[1]),
+                    num   =         (isdigit(str[1]) ? str[1] : str[0]);
 
         this->at(0) = alpha;
         this->at(1) = num;
@@ -97,7 +133,7 @@ namespace chess {
     addr m_pos;
     piece (
       name const &_name = name::_null_,
-      addr const &_pos = "__"sv
+      addr const &_pos = "a1"s
     ) : m_name(_name),
         m_pos(_pos)
     {
@@ -110,12 +146,12 @@ namespace chess {
     ) {
       auto search = piece::e2w.find(pc.m_name);
 
-      if(search == piece::e2w.end())
-        return wos;
+      // if(search == piece::e2w.end())
+      //   return wos;
 
-      wchar_t w = search->second;
-
-      wos << w;
+      wos << L'[';
+      wos << (search != piece::e2w.end() ? search->second : L'?');
+      wos << L']';
 
       return wos;
     }
@@ -128,13 +164,30 @@ namespace chess {
     { piece::name::wBishop, L'\u2657' },
     { piece::name::wKnight, L'\u2658' },
     { piece::name::wPawn,   L'\u2659' },
-    { piece::name::bQueen,  L'\u265a' },
+
+    { piece::name::bQueen,  L'\u2654' },
     { piece::name::bKing,   L'\u265b' },
-    { piece::name::bRook,   L'\u265c' },
+    { piece::name::bRook,   L'\u2656' },
     { piece::name::bBishop, L'\u265d' },
     { piece::name::bKnight, L'\u265e' },
-    { piece::name::bPawn,   L'\u265f' },
+    { piece::name::bPawn,   L'\u265f' }
   };
+  // piece::sym_chr_t const piece::e2w = {
+  //   { piece::name::_null_,  L' '      },
+  //   { piece::name::wQueen,  L'\u2654' },
+  //   { piece::name::wKing,   L'\u2655' },
+  //   { piece::name::wRook,   L'\u2656' },
+  //   { piece::name::wBishop, L'\u2657' },
+  //   { piece::name::wKnight, L'\u2658' },
+  //   { piece::name::wPawn,   L'\u2659' },
+  //
+  //   { piece::name::bQueen,  L'\u265a' },
+  //   { piece::name::bKing,   L'\u265b' },
+  //   { piece::name::bRook,   L'\u265c' },
+  //   { piece::name::bBishop, L'\u265d' },
+  //   { piece::name::bKnight, L'\u265e' },
+  //   { piece::name::bPawn,   L'\u265f' }
+  // };
   piece::chr_sym_t const piece::w2e = {
     { L' '     , piece::name::_null_  },  
     { L'\u2654', piece::name::wQueen  },  
@@ -209,7 +262,7 @@ namespace chess {
 
       for(std::size_t i = 0; i < row.size(); i++) {
         // wchar_t pc = static_cast<wchar_t>(row[i]);
-        wos << '[' << row[i] << ']';
+        wos << row[i];
       }
 
       return wos;
@@ -256,13 +309,42 @@ namespace chess {
 };
 
 
+
+
 int main(int argc, char *argv[]) {
   using namespace std;
   using namespace chess;
 
-  board game = board::initial_setup();
+  typedef piece::addr addr;
+  typedef piece::color color;
 
-  wcout << game;
+# ifdef _WIN32
+  _setmode(_fileno(stdout), _O_U16TEXT);
+# endif
+
+
+  try {
+    board game = board::initial_setup();
+    wcout << game;
+
+    // row r = row::ranks(color::white);
+    // wcout << r; 
+
+    // piece pc(piece::name::wKing);
+    // wcout << pc;
+    //
+
+    //
+    // cout << addr::is_valid("A1").second << "\n";
+    // cout << addr::is_valid("H4").second << "\n";
+    // cout << addr::is_valid("H8").second << "\n";
+    // cout << addr::is_valid("5B").second << "\n";
+    // cout << addr::is_valid("XX").second << "\n";
+    // cout << addr::is_valid("__").second << "\n";
+
+  } catch(std::exception &ex) {
+    wcout << ex.what();
+  }
   
   return 0;
 }
