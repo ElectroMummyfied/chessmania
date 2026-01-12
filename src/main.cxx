@@ -337,6 +337,16 @@ namespace chess {
     static bool    no_pattern(addr const & _) {
       return false;
     };
+    static bool  pawn_pattern(addr const & _) {
+      char row = _[1] - '1',
+           col = _[0] - 'A';
+                    
+      bool dst = row == 1 || col == 0;
+
+      // dst &= (row != 0 && col != 0);
+
+      return dst;        
+    }
     static bool  rook_pattern(addr const & _) {
       char row = _[1] - '1',
            col = _[0] - 'A';
@@ -344,7 +354,22 @@ namespace chess {
       bool dst = row == 0 ||
                  col == 0;
 
+      dst &= (row != 0 && col != 0);
+
       return dst;        
+    }
+    static bool  knight_pattern(addr const & _) {
+      using namespace std;
+
+      char row = _[1] - '1',
+           col = _[0] - 'A';
+      
+      bool dst = (abs(row) == 2 && abs(col) == 1) ||
+                 (abs(row) == 1 && abs(col) == 2);
+
+      dst &= (row != 0 && col != 0);
+
+      return dst;
     }
     static bool bishop_pattern(addr const & _) { 
       using namespace std;
@@ -354,16 +379,15 @@ namespace chess {
       
       bool dst = abs(row) == abs(col);
 
+      dst &= (row != 0 && col != 0);
+
       return dst;
     }
 
     static bool queen_pattern(addr const & _) { 
-      using namespace std;
-
-      char row = _[1] - '1',
-           col = _[0] - 'A';
-      
-      bool dst = abs(row) == abs(col);
+      bool rook   =   rook_pattern(_),
+           bishop = bishop_pattern(_),
+           dst    = rook || bishop;
 
       return dst;
     };
@@ -375,6 +399,8 @@ namespace chess {
                     
       bool dst = abs(row) < 2 &&
                  abs(col) < 2;
+
+      dst &= (row != 0 && col != 0);
 
       return dst;        
     }
@@ -406,18 +432,16 @@ namespace chess {
 
       return search->second;
     }
-    auto move_pattern() const {
+    pfn_t move_pattern() const {
       typedef std::set<addr> addrs_t;
 
-      addrs_t dst;
+      // addrs_t dst;
 
-      switch(this->m_name) {
+      if( auto search  = piece::e2f.find(this->m_name);
+               search != piece::e2f.end()
+      ) return search->second;
 
-        default:
-          break;
-      }
-      
-      return dst;
+      return piece::no_pattern;
     }
     friend std::wostream& operator<<(
       std::wostream& wos,
@@ -488,27 +512,21 @@ namespace chess {
     // { piece::name::bPawn,   L'\u265f' }
   };
   piece::sym_pfn_t const piece::e2f = {
-    { piece::name::_null_, piece::no_pattern },
-    { piece::name::wQueen, piece::queen_pattern },
-    { piece::name::wKing,  piece::king_pattern },
-    { piece::name::wRook,  piece::rook_pattern },
-    { piece::name::wBishop, L'\u2657' },
-    // { piece::name::wKnight, L'\u2658' },
-    // { piece::name::wPawn,   L'\u2659' },
-    //
-    // { piece::name::bQueen,  L'\u2654' },
-    // { piece::name::bKing,   L'\u2655' },
-    // { piece::name::bRook,   L'\u2656' },
-    // { piece::name::bBishop, L'\u2657' },
-    // { piece::name::bKnight, L'\u2658' },
-    // { piece::name::bPawn,   L'\u2659' },
+    { piece::name::_null_,  piece::no_pattern },
 
-    // { piece::name::bQueen,  L'\u2654' },
-    // { piece::name::bKing,   L'\u265b' },
-    // { piece::name::bRook,   L'\u2656' },
-    // { piece::name::bBishop, L'\u265d' },
-    // { piece::name::bKnight, L'\u265e' },
-    // { piece::name::bPawn,   L'\u265f' }
+    { piece::name::wQueen,  piece::queen_pattern  },
+    { piece::name::wKing,   piece::king_pattern   },
+    { piece::name::wRook,   piece::rook_pattern   },
+    { piece::name::wBishop, piece::bishop_pattern },
+    { piece::name::wKnight, piece::knight_pattern },
+    { piece::name::wPawn,   piece::pawn_pattern   },
+
+    { piece::name::bQueen,  piece::queen_pattern  },
+    { piece::name::bKing,   piece::king_pattern   },
+    { piece::name::bRook,   piece::rook_pattern   },
+    { piece::name::bBishop, piece::bishop_pattern },
+    { piece::name::bKnight, piece::knight_pattern },
+    { piece::name::bPawn,   piece::pawn_pattern   }
   };
   piece::chr_sym_t const piece::w2e = {
     { L' '     , piece::name::_null_  },  
@@ -634,11 +652,15 @@ namespace chess {
         // wchar_t pc = static_cast<wchar_t>(row[i]);
         
         if(row.m_highlight_active_pos && row.m_active_pos == i) {
+
             if (i%2 == flp) wos << _c3 << c3(ss.str()) << c3_;
           else              wos << _c4 << c4(ss.str()) << c4_;
+
         } else {
+
             if (i%2 == flp) wos << _c1 << row[i] << c1_;
           else              wos << _c2 << row[i] << c2_;
+
         }
       }
 
@@ -674,7 +696,7 @@ namespace chess {
       m_active_pos("a1"),
       m_highlight_active_pos(true)
     { }
-    auto active_pattern() const {
+    piece::pfn_t active_pattern() const {
       auto  dst = nullptr;
       
       auto  r = static_cast<short>( this->m_active_pos[1] - '1'),
@@ -682,9 +704,7 @@ namespace chess {
 
       auto  p = (*this)[r][c]; // active piece
       
-      p.move_pattern();
-
-      return dst;
+      return p.move_pattern();
     }
     void set_checker_pattern(short row) const {
       this->at(row).m_stream_helper = row % 2;
@@ -693,7 +713,7 @@ namespace chess {
       auto &r = this->at(row);
       auto &highlight_row = r.m_highlight_active_pos;
 
-      auto highlight_pattern = this->active_pattern();
+      piece::pfn_t highlight_pattern = this->active_pattern();
 
             highlight_row =             this->m_highlight_active_pos   &&
                     static_cast<short>( this->m_active_pos[1] - '1'  ) == row;
@@ -718,8 +738,8 @@ namespace chess {
 
       for(std::size_t i = 0; i < brd.size(); i++) {
 
-        brd.set_row_checker_pattern(i);
-        brd.set_row_highlight_pattern(i);
+        brd.set_checker_pattern(i);
+        brd.set_highlight_pattern(i);
 
        
         wos << L"(" << (i + 1) << L")" << brd[i] << '\n';
